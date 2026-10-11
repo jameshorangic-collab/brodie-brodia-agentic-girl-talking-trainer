@@ -435,12 +435,23 @@ class MixerAudioOutput(_AudioOutputBase):
 class GeminiModel:
     """The livekit-agents AgentSession with Gemini Live, output through MixerAudioOutput, input from the caller's room audio.
     start() is called once a caller is bound (a warm job never starts it: no model session, no cost)."""
-    def __init__(self, persona, model=None, voice=None, api_key=None, on_turn=None, temperature=None, language=None):
+    def __init__(self, persona, model=None, voice=None, api_key=None, on_turn=None, temperature=None, language=None, controller=None):
         self.persona = persona; self.model_id = model or os.environ.get('GEMINI_LIVE_MODEL') or DEFAULT_MODEL
         self.voice = voice or os.environ.get('GEMINI_VOICE') or DEFAULT_VOICE
         self.api_key = api_key or os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
         lang = language if language is not None else os.environ.get('GEMINI_LANGUAGE', DEFAULT_LANGUAGE)
         self.language = None if str(lang).strip().lower() in ('', 'off', 'none') else str(lang).strip()
+        self.controller = controller
+        if controller is not None:
+            from facetime.brodia_live import BRODIA_VOICES
+            self.voice = voice or os.environ.get('BRODIA_GEMINI_VOICE') or 'Leda'
+            if self.voice not in BRODIA_VOICES:
+                raise ValueError('Brodia voice must be Leda, Aoede, Achernar, or Zephyr')
+            if 'extended' in self.model_id.lower():
+                raise ValueError('Brodia requires a Gemini Live model supporting blocking tools')
+            self.language = None  # native audio does not support language_code
+            self.persona = controller.instructions()
+            controller.model = self
         self.on_turn = on_turn; self.temperature = temperature
         self.last_caller_t = -1e9; self.last_coach_t = -1e9        # monotonic times of the last transcripts (the conversation hold reads them)
         self.rt = None; self.session = None; self.agent = None; self.sink = None; self.video = None; self.started = False; self.n_generate = 0; self.n_interrupt = 0
@@ -451,6 +462,16 @@ class GeminiModel:
         if self.rt is None:
             from livekit.plugins import google
             kw = dict(model=self.model_id, voice=self.voice)
+            kw['instructions'] = self.persona
+            if self.controller is not None:
+                from google.genai import types
+                kw.update(input_audio_transcription=types.AudioTranscriptionConfig(),
+                          output_audio_transcription=types.AudioTranscriptionConfig(),
+                          tool_behavior=types.Behavior.BLOCKING,
+                          realtime_input_config=types.RealtimeInputConfig(
+                              automatic_activity_detection=types.AutomaticActivityDetection(
+                                  disabled=False, prefix_padding_ms=100, silence_duration_ms=500),
+                              activity_handling=types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS))
             if self.api_key: kw['api_key'] = self.api_key
             if self.temperature is not None: kw['temperature'] = self.temperature
             if self.language: kw['language'] = self.language
@@ -472,10 +493,11 @@ class GeminiModel:
         self.session = AgentSession(llm=self.rt, user_away_timeout=None, **(dict(video_sampler=None) if video is not None else {}))
         self.session.output.audio = sink                                  # before start: RoomIO then publishes no audio track
         if video is not None: self.session.input.video = video            # before start: the forward task starts with the session
-        self.agent = Agent(instructions=self.persona, allow_interruptions=True)
+        tools = dict(tools=self.controller.tools()) if self.controller is not None else {}
+        self.agent = Agent(instructions=self.persona, allow_interruptions=True, **tools)
         self.session.on('conversation_item_added', self._on_item)
         self.session.on('user_input_transcribed', self._on_user_transcript)
-        self.session.on('error', lambda ev: log.warning('voice session error: %s', getattr(ev, 'error', ev)))
+        self.session.on('error', lambda ev: log.warning('voice session error: %s', type(getattr(ev, 'error', ev)).__name__))
         kw = dict(record=False)
         if room is not None:
             kw.update(room=room, session_host=False,
@@ -488,13 +510,17 @@ class GeminiModel:
     def _on_item(self, ev):
         item = getattr(ev, 'item', None)
         if getattr(item, 'role', None) == 'assistant': self.last_coach_t = time.monotonic()
-        if getattr(item, 'role', None) == 'assistant' and self.on_turn:
+        if getattr(item, 'role', None) == 'assistant':
             text = (getattr(item, 'text_content', None) or '').strip()
-            if text: self.on_turn('coach', text)
+            if text:
+                if self.controller is not None: self.controller.observe('character', text, getattr(item, 'id', None))
+                if self.on_turn: self.on_turn('coach', text)
 
     def _on_user_transcript(self, ev):
         if (ev.transcript or '').strip(): self.last_caller_t = time.monotonic()                      # interim transcripts count: the caller is talking
-        if getattr(ev, 'is_final', False) and self.on_turn and (ev.transcript or '').strip(): self.on_turn('caller', ev.transcript.strip())
+        if getattr(ev, 'is_final', False) and (ev.transcript or '').strip():
+            if self.controller is not None: self.controller.observe('caller', ev.transcript.strip(), getattr(ev, 'item_id', None))
+            if self.on_turn: self.on_turn('caller', ev.transcript.strip())
 
     # ---- the Floor's interface ----
     def set_input_enabled(self, on):
@@ -526,6 +552,7 @@ class GeminiModel:
         return self.session is not None and self.session.current_speech is not None and not self.session.current_speech.done()
 
     async def aclose(self):
+        if self.controller is not None: await self.controller.aclose()
         if self.video is not None and hasattr(self.video, 'aclose'):
             try: await self.video.aclose()
             except Exception as e: log.debug('video tee close: %s', e)
@@ -535,15 +562,36 @@ class GeminiModel:
         self.session = None
 
 
+OPENAI_DEFAULT_MODEL = 'gpt-realtime'
+OPENAI_DEFAULT_VOICE = 'ash'
+
+
+class OpenAIModel(GeminiModel):
+    """Optional OpenAI Realtime fallback using the same mixer and floor contract."""
+    def __init__(self, persona, model=None, voice=None, api_key=None, on_turn=None, temperature=None, language=None):
+        super().__init__(persona, model=model or os.environ.get('OPENAI_REALTIME_MODEL') or OPENAI_DEFAULT_MODEL,
+                         voice=voice or os.environ.get('OPENAI_VOICE') or OPENAI_DEFAULT_VOICE,
+                         api_key=api_key or os.environ.get('OPENAI_API_KEY'), on_turn=on_turn, temperature=temperature, language='off')
+
+    def build(self):
+        if self.rt is None:
+            from livekit.plugins import openai
+            kw = dict(model=self.model_id, voice=self.voice)
+            if self.api_key: kw['api_key'] = self.api_key
+            if self.temperature is not None: kw['temperature'] = self.temperature
+            self.rt = openai.realtime.RealtimeModel(**kw)
+        return self.rt
+
+
 class VoiceLayer:
     """One per job: consumes job.events, runs the Floor, feeds SetSummary context at openings, dispatches to the handlers, and
     logs model turns. job must have .events (asyncio.Queue), .player (CuePlayer or None), .emit_voice(role, text). model=None
     runs the handlers alone (ask_voice then only queues and warns)."""
-    def __init__(self, job, model=None, plan=None, handlers=None, window_s=WINDOW_S, probe=True, now=time.monotonic, floor_open=False, vision=None):
+    def __init__(self, job, model=None, plan=None, handlers=None, window_s=WINDOW_S, probe=True, now=time.monotonic, floor_open=False, vision=None, feedback=None):
         """probe=False (the worker without --latency-probe): a probe event opens no floor window (it is still logged).
         floor_open=True (--floor open): the Floor is always open (no set ever cuts the voice; asks fire at once).
         vision: a VideoTee (--vision) handed to the model session at start and enabled once the session is up."""
-        self.job = job; self.model = model; self.handlers = handlers; self.vision = vision
+        self.job = job; self.model = model; self.handlers = handlers; self.vision = vision; self.feedback = feedback
         self.floor = Floor(model, window_s=window_s, probe=probe, now=now, always_open=floor_open) if model is not None else None
         self.summary = SetSummary(plan); self.mix = None; self.sink = None; self.started = False; self.n_events = 0; self.n_context = 0
         self.pending_context = []; self._warned_no_model = False
@@ -573,12 +621,13 @@ class VoiceLayer:
             self.pending_context = []
             return True
         except Exception as e:
-            log.exception('voice model start failed'); print(f'[voice] model start failed: {type(e).__name__}: {e}', flush=True)
+            log.warning('voice model start failed (%s)', type(e).__name__)
             return False
 
     # ---- the handlers' verbs ----
     def say_now(self, text, intent='other'):
         """A bank string through the fast path (CuePlayer.say, priority 'other': never over a count). Returns the record."""
+        if self.feedback is not None: return None  # no legacy voice clips in Brodia
         player = getattr(self.job, 'player', None)
         if player is None: log.warning('say_now(%r): no cue player (events-only mode)', text); return None
         return player.say(text, intent, dict(source='handler'))
@@ -598,6 +647,11 @@ class VoiceLayer:
         gesture or probe that opened the floor), then the handlers. The rest/done summary runs whether or not a model is attached
         (it closes the set in the bookkeeping) and is sent as context only when there is one."""
         self.n_events += 1
+        feedback_prompt = self.feedback.observe(ev) if self.feedback is not None else None
+        if self.feedback is not None:
+            if feedback_prompt:
+                self.ask_voice(feedback_prompt)
+            return  # no fitness summary, floor events or legacy handlers
         self.summary.on_event(ev)
         change = self.floor.on_event(ev) if self.floor is not None else None
         t = ev['type']
@@ -610,6 +664,9 @@ class VoiceLayer:
         if self.handlers is not None:
             try: self.handlers(ev, self.say_now, self.ask_voice)
             except Exception as e: log.warning('handler failed on %s: %r', ev.get('type'), e)
+        if feedback_prompt:
+            print('[brodia] roleplay ended; generating grounded feedback', flush=True)
+            self.ask_voice(feedback_prompt)
 
     def _context(self, text):
         self.n_context += 1

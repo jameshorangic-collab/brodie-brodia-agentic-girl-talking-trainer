@@ -13,7 +13,7 @@ SRC = os.path.join(ROOT, 'src')
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 DATA = os.environ.get('RTCOACH_DATA', os.path.join(ROOT, 'data'))
-CUES_DIR = os.path.join(DATA, 'cues_audio')                 # openai voice bank
+CUES_DIR = os.path.join(DATA, 'cues_audio')                 # legacy local cue bank (fallback only)
 CUES_DIR_GEMINI = os.path.join(DATA, 'cues_audio_gemini')   # gemini voice bank (never mixed)
 CUES_DIR_GEMINI_AU = os.path.join(DATA, 'cues_audio_gemini_au')   # the same Puck voice with an Australian-accent stage direction
 SAMPLE_RATE = 24000

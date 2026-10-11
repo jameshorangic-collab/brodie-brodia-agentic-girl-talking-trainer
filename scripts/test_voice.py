@@ -34,6 +34,7 @@ import argparse, asyncio, os, subprocess, sys, time
 import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import os as _os, tempfile as _tempfile; _os.environ['BRODIA_NEXT_CALL_PATH'] = _os.path.join(_tempfile.mkdtemp(prefix='brodia-test-'), 'next_call.json')  # never touch a real pending P13 selection
 from facetime import SAMPLE_RATE, FRAME_SAMPLES
 from facetime.audio_out import CuePlayer, MixInput
 from facetime.voice import Floor, SetSummary, VoiceLayer, MixerAudioOutput, GeminiModel, VideoTee, OPEN_STATES, DEFAULT_PERSONA, load_handlers, HANDLERS_PATH, ASK_TTL_S

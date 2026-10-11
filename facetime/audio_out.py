@@ -44,7 +44,7 @@ def default_cues_dir():
     """env CUE_AUDIO_DIR (when it exists and covers at least one string; a missing or empty directory is reported and the
     ranked banks are used instead, so a wrong mount never makes the coach mute), else the bank that covers the most of the
     current vocabulary: Puck first (the plain Puck bank is the default voice), then the
-    Australian Puck bank, then the OpenAI bank. The vocabulary grows with cues.json, so a bank is never required to be
+    Australian Puck bank, then the legacy local bank. The vocabulary grows with cues.json, so a bank is never required to be
     complete; missing strings are reported at load."""
     d = os.environ.get('CUE_AUDIO_DIR')
     if d:
@@ -58,7 +58,7 @@ def default_cues_dir():
         cov = [(bank_coverage(x), x) for x in banks if os.path.isdir(x)]
         (c, n), best = max(cov, key=lambda t: (t[0][0], -banks.index(t[1])))
         for (ci, ni), x in cov:
-            if ci < ni: log.warning('cue bank %s covers %d/%d strings; run facetime.cues_tts --backend %s', x, ci, ni, 'gemini' if x == CUES_DIR_GEMINI else 'openai')
+            if ci < ni: log.warning('cue bank %s covers %d/%d strings; run facetime.cues_tts with GEMINI_API_KEY set', x, ci, ni)
         return best
     except Exception as e:
         log.warning('bank check failed: %s', e)
@@ -98,6 +98,13 @@ def normalize_level(pcm, target_dbfs=TARGET_RMS_DBFS, ceil_dbfs=PEAK_CEIL_DBFS):
 
 class CueBank:
     """text -> int16 PCM (24 kHz mono), loaded lazily from the manifest of one voice bank."""
+    @classmethod
+    def disabled(cls):
+        """Empty bank keeps the single streaming mixer track without prerecorded speech."""
+        bank = cls.__new__(cls)
+        bank.dir, bank.manifest, bank.cache = 'disabled (Brodia)', {}, {}
+        return bank
+
     def __init__(self, cues_dir=None):
         self.dir = cues_dir or default_cues_dir()
         log.info('cue bank %s', self.dir); ensure_beep(self.dir)
@@ -190,6 +197,12 @@ class CuePlayer:
         self._stop = False
         self.n_dropped = 0
         self.mix = None; self._pump_task = None; self.pump_lead_s = 0.04; self.mix_frames = 0   # attach_mixer()
+        self.last_voice_t = -1e9     # monotonic time of the last frame with real energy pushed to the source (clip or model voice)
+
+    def speaking(self, window_s=0.15):
+        """Cheap: True when an audible frame (a clip or the mixed model voice) was pushed within window_s. The source queue is
+        only ~100 ms deep, so this tracks what the caller hears to within about that."""
+        return time.monotonic() - self.last_voice_t <= window_s
 
     def attach_mixer(self, duck_db=-10.0, hold_ms=150, gain_db=0.0, lead_ms=40, hold=True):
         """Add the optional mixer input (see the module docstring); returns the MixInput. The pump starts with run()."""
@@ -271,7 +284,10 @@ class CuePlayer:
             try: self.on_record(rec)
             except Exception as e: log.warning('on_record failed: %s', e)
 
+    SPEAK_PEAK = 400            # int16 peak above which a pushed frame counts as audible speech (about -38 dBFS)
+
     def _frame(self, chunk):
+        if len(chunk) and int(np.abs(chunk).max()) > self.SPEAK_PEAK: self.last_voice_t = time.monotonic()   # speaking() for the avatar's mouth
         if self.rtc is not None:
             return self.rtc.AudioFrame(chunk.tobytes(), SAMPLE_RATE, 1, len(chunk))
         return chunk

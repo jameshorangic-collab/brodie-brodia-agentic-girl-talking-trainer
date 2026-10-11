@@ -18,6 +18,15 @@ models/
 .env
 .env.*
 *.jsonl
+# P15: browser/screen call recordings and transcripts never belong in git
+*.webm
+*.mov
+*.m4a
+*.ogg
+*.mkv
+*.vtt
+*.srt
 
 !.env.example
 !assets/avatar/*.png
+!landing/public/avatars/*.png

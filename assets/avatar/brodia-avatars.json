@@ -1,0 +1,134 @@
+{
+  "note": "Brodia practice-partner avatars (our own characters, not Brodie): faceless figurine renders (transparent PNG, 612x408). The app draws eyes, brows and mouth on top. Feature centers are pixel coordinates in that 612x408 image, placed by eye and checked in a test render. Ink color matches landmarks.json featureInk.",
+  "width": 612,
+  "height": 408,
+  "featureInk": {
+    "r": 41,
+    "g": 35,
+    "b": 30
+  },
+  "sizes": {
+    "eye": {
+      "rx": 9,
+      "ry": 13
+    },
+    "brow": {
+      "w": 34,
+      "h": 6
+    },
+    "mouth": {
+      "w": 32,
+      "h": 10
+    }
+  },
+  "characters": {
+    "maya": {
+      "file": "brodia-maya.png",
+      "scenario": "park",
+      "glassesBaked": false,
+      "eyes": [
+        [
+          268,
+          232
+        ],
+        [
+          352,
+          232
+        ]
+      ],
+      "brows": [
+        [
+          268,
+          203
+        ],
+        [
+          352,
+          203
+        ]
+      ],
+      "mouth": [
+        310,
+        284
+      ]
+    },
+    "jess": {
+      "file": "brodia-jess.png",
+      "scenario": "barista",
+      "glassesBaked": true,
+      "eyes": [
+        [
+          245,
+          220
+        ],
+        [
+          378,
+          220
+        ]
+      ],
+      "brows": [
+        [
+          245,
+          182
+        ],
+        [
+          378,
+          182
+        ]
+      ],
+      "mouth": [
+        312,
+        284
+      ]
+    },
+    "nadia": {
+      "file": "brodia-nadia.png",
+      "scenario": "street",
+      "glassesBaked": false,
+      "eyes": [
+        [
+          272,
+          228
+        ],
+        [
+          358,
+          228
+        ]
+      ],
+      "brows": [
+        [
+          272,
+          200
+        ],
+        [
+          358,
+          200
+        ]
+      ],
+      "mouth": [
+        315,
+        280
+      ]
+    }
+  },
+  "coach": {
+    "note": "On-model Brodie (brodie-character-kit v1): generated with tools/gen_brodie.py from both kit references and the canon prompt, passed check_cream.py (dE 0.0) and a visual check (BRODIE lettering readable, no nose, one mouth, bar brows, flat style), cut out with tools/cutout.py. 1024x1024 transparent PNG. Costume: black backwards cap. Do not redraw or edit Brodie outside the kit.",
+    "kit": "https://github.com/seraphimlabs-dev/brodie-character-kit",
+    "poses": {
+      "default": {
+        "file": "brodie-coach.png",
+        "use": "post-game coach, end card",
+        "prompt": "Brodie as a rizz coach: wearing a black backwards baseball cap, holding a single red rose in his right fist, left fist giving a thumbs up, wink with a big grin, confident standing pose."
+      },
+      "hype": {
+        "file": "brodie-coach-hype.png",
+        "use": "good moves (!!, !, ★)",
+        "prompt": "Brodie as a rizz coach: wearing a black backwards baseball cap, holding a small tan clipboard in his left fist, right fist punched up in celebration, big grin, mid-jump hype pose."
+      },
+      "think": {
+        "file": "brodie-coach-think.png",
+        "use": "weak moves (?!, ?, ??)",
+        "prompt": "Brodie as a rizz coach: wearing a black backwards baseball cap, holding a small tan clipboard out to his left side at arm's length in his left fist, right fist planted on his right hip, both arms outside the tank so the BRODIE lettering is fully clear, focused expression with a small closed smile, one eyebrow slightly raised, standing."
+      }
+    }
+  }
+}

@@ -1,24 +1,21 @@
 """Render the closed cue vocabulary to PCM with a TTS API and cache it.
 
-Backends: --backend openai (gpt-4o-mini-tts, response_format pcm = 24 kHz s16 mono) writes data/cues_audio/;
---backend gemini (the current flash TTS model from client.models.list(), generate_content with
+Gemini TTS (the current flash TTS model from client.models.list(), generate_content with
 response_modalities=["AUDIO"], one prebuilt voice, audio comes back as a 24 kHz s16 mono WAV, resampled if ever not
-24 kHz) writes data/cues_audio_gemini/. Each directory has its own manifest.json (text -> {file, duration_s, chars,
-model, voice, backend}) so the two voices never mix; the player picks the bank by env CUE_AUDIO_DIR (default: the
-gemini bank if it is complete, else the openai one). Clips are <sha1 of text>.pcm, exactly what the "coach-audio"
+24 kHz) writes data/cues_audio_gemini/. Each manifest maps text to {file, duration_s, chars,
+model, voice, backend}. Clips are <sha1 of text>.pcm, exactly what the "coach-audio"
 LiveKit track carries. Rendering is idempotent: clips already in the manifest with a file on disk are skipped.
 Leading and trailing silence below -40 dBFS is trimmed, keeping 60 ms of tail so the end of a word is not clipped.
 Gemini is billed per token (text in, audio out): the usage metadata totals are printed.
 
-Run:  .venv/bin/python -m facetime.cues_tts [--backend openai|gemini] [--voice nova|Puck] [--model ...] [--dry-run]
+Run:  .venv/bin/python -m facetime.cues_tts [--voice Puck] [--model ...] [--dry-run]
 """
 import argparse, hashlib, json, os, sys, time, concurrent.futures as cf
 import numpy as np
-from facetime import CUES_DIR, CUES_DIR_GEMINI, SAMPLE_RATE
+from facetime import CUES_DIR_GEMINI, SAMPLE_RATE
 from rtcoach.coach import CUES, PRAISE, COUNT_WORDS
 from rtcoach.exmap import LR2CLF
 
-MANIFEST = os.path.join(CUES_DIR, 'manifest.json')      # openai bank; the gemini bank has its own
 SILENCE_DBFS = -40.0
 TAIL_S = 0.060
 COUNT_TRIM = (-45.0, 0.030)          # count words: do not clip a soft onset, keep only 30 ms of tail (immediacy)
@@ -28,9 +25,6 @@ def count_words():
 
 def trim_params(text):
     return COUNT_TRIM if text in count_words() else (SILENCE_DBFS, TAIL_S)
-USD_PER_MCHAR = {'tts-1': 15.0, 'tts-1-hd': 30.0, 'gpt-4o-mini-tts': 15.0}   # char-rate estimate; 4o-mini-tts is also ~$0.015/min
-INSTRUCTIONS = ('You are an energetic, upbeat gym coach calling out short cues mid-set. '
-                'Clear, punchy, confident, friendly. No trailing pause.')
 
 ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
 def number_word(n):
@@ -79,13 +73,13 @@ def trim(pcm, rate=SAMPLE_RATE, dbfs=SILENCE_DBFS, tail_s=TAIL_S):
     a = int(loud[0]); b = min(len(x), int(loud[-1]) + 1 + int(tail_s * rate))
     return x[a:b].tobytes()
 
-def load_manifest(cues_dir=CUES_DIR):
+def load_manifest(cues_dir=CUES_DIR_GEMINI):
     mf = os.path.join(cues_dir, 'manifest.json')
     if os.path.exists(mf):
         return json.load(open(mf))
     return {}
 
-def save_manifest(m, cues_dir=CUES_DIR):
+def save_manifest(m, cues_dir=CUES_DIR_GEMINI):
     os.makedirs(cues_dir, exist_ok=True)
     mf = os.path.join(cues_dir, 'manifest.json'); tmp = mf + '.tmp'
     json.dump(m, open(tmp, 'w'), indent=1, sort_keys=True); os.replace(tmp, mf)
@@ -148,39 +142,18 @@ def gemini_render_one(client, model, voice, text):
             last = e; time.sleep(2.0 * (attempt + 1))
     raise last
 
-def pick_model(client, want):
-    ids = {m.id for m in client.models.list()}
-    if want in ids:
-        return want
-    return 'tts-1'
-
-def render_one(client, model, voice, text):
-    kw = dict(model=model, voice=voice, input=text, response_format='pcm')
-    if model.startswith('gpt-4o'):
-        kw['instructions'] = INSTRUCTIONS
-    for attempt in range(4):
-        try:
-            r = client.audio.speech.create(**kw)
-            return r.content
-        except Exception as e:                     # rate limits and transient errors
-            if attempt == 3:
-                raise
-            time.sleep(1.5 * (attempt + 1)); last = e
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--backend', default='openai', choices=['openai', 'gemini'])
-    ap.add_argument('--model', default=None, help='openai: gpt-4o-mini-tts (fallback tts-1); gemini: the listed flash TTS model')
-    ap.add_argument('--voice', default=None, help='openai default nova; gemini default Puck')
+    ap.add_argument('--model', default=None, help='Gemini Flash TTS model; the newest available Flash model is selected when omitted')
+    ap.add_argument('--voice', default=None, help='Gemini prebuilt voice (default Puck)')
     ap.add_argument('--workers', type=int, default=6)
     ap.add_argument('--dry-run', action='store_true', help='list what would be rendered, no API calls')
     ap.add_argument('--rerender-counts', action='store_true', help='drop the count words from the manifest so they are rendered again with the tighter trim')
-    ap.add_argument('--style', default='', help='gemini only: a bracketed stage direction prepended to every string, e.g. "(Australian accent, warm, upbeat trainer) "; not spoken, not part of the manifest key')
-    ap.add_argument('--out-dir', default=None, help='bank directory (default: the backend bank); use a new directory for a new voice so banks never mix')
+    ap.add_argument('--style', default='', help='a bracketed stage direction prepended to every string, e.g. "(Australian accent, warm, upbeat trainer) "; not spoken, not part of the manifest key')
+    ap.add_argument('--out-dir', default=None, help='bank directory (default: data/cues_audio_gemini); use a new directory for a new voice so banks never mix')
     a = ap.parse_args()
-    gem = a.backend == 'gemini'
-    cues_dir = a.out_dir or (CUES_DIR_GEMINI if gem else CUES_DIR)
-    want_model = a.model or ('gemini-3.8-flash-tts' if gem else 'gpt-4o-mini-tts'); voice = a.voice or ('Puck' if gem else 'nova')
+    cues_dir = a.out_dir or CUES_DIR_GEMINI
+    want_model = a.model or 'gemini-3.8-flash-tts'; voice = a.voice or 'Puck'
     vocab = vocabulary(); man = load_manifest(cues_dir)
     if a.rerender_counts:
         old = {t: man[t]['duration_s'] for t in count_words() if t in man}
@@ -188,26 +161,17 @@ def main():
         print(f'count words before re-render: {len(old)} clips, mean {sum(old.values()) / max(len(old), 1):.3f} s, total {sum(old.values()):.2f} s')
     todo = [t for t in vocab if not (t in man and os.path.exists(os.path.join(cues_dir, man[t]['file'])))]
     chars = sum(len(t) for t in todo)
-    print(f'[{a.backend}] vocabulary {len(vocab)} strings, cached {len(vocab) - len(todo)}, to render {len(todo)} ({chars} chars) -> {cues_dir}')
+    print(f'[gemini] vocabulary {len(vocab)} strings, cached {len(vocab) - len(todo)}, to render {len(todo)} ({chars} chars) -> {cues_dir}')
     if a.dry_run or not todo:
-        rate = USD_PER_MCHAR.get(want_model, 15.0)
-        if gem: print(f'estimated cost for the remaining {len(todo)} clips: about ${len(todo) * 55 * GEMINI_USD["audio_out_per_m"] / 1e6:.3f} (55 audio tokens per clip)')
-        else: print(f'estimated cost for the remaining {chars} chars: ${chars * rate / 1e6:.4f} (at ${rate}/1M chars)')
+        print(f'estimated cost for the remaining {len(todo)} clips: about ${len(todo) * 55 * GEMINI_USD["audio_out_per_m"] / 1e6:.3f} (55 audio tokens per clip)')
         if not todo:
             tot = sum(v['duration_s'] for v in man.values())
             print(f'nothing to do; {len(man)} clips, {tot:.1f} s of audio, mean clip {tot / max(len(man), 1):.2f} s; bank complete: {bank_complete(cues_dir)}')
         return
-    if gem:
-        client = gemini_client(); model = gemini_pick_model(client, want_model)
-        if model != want_model: print(f'{want_model} not listed, using {model}')
-        def job(text):
-            pcm, usage = gemini_render_one(client, model, voice, a.style + text); db, tail = trim_params(text); return text, pcm, trim(pcm, dbfs=db, tail_s=tail), usage
-    else:
-        import openai
-        client = openai.OpenAI(); model = pick_model(client, want_model)
-        if model != want_model: print(f'{want_model} not available, using {model}')
-        def job(text):
-            pcm = render_one(client, model, voice, text); db, tail = trim_params(text); return text, pcm, trim(pcm, dbfs=db, tail_s=tail), None
+    client = gemini_client(); model = gemini_pick_model(client, want_model)
+    if model != want_model: print(f'{want_model} not listed, using {model}')
+    def job(text):
+        pcm, usage = gemini_render_one(client, model, voice, a.style + text); db, tail = trim_params(text); return text, pcm, trim(pcm, dbfs=db, tail_s=tail), usage
     os.makedirs(cues_dir, exist_ok=True)
     t0 = time.time(); done = 0; raw_s = 0.0; out_s = 0.0; tok = dict(text_tokens=0, audio_tokens=0, total_tokens=0)
     with cf.ThreadPoolExecutor(a.workers) as ex:
@@ -216,7 +180,7 @@ def main():
             open(os.path.join(cues_dir, fn), 'wb').write(cut)
             d = len(cut) / 2 / SAMPLE_RATE
             db, tail = trim_params(text)
-            man[text] = dict(file=fn, duration_s=round(d, 3), chars=len(text), model=model, voice=voice, backend=a.backend, trim_dbfs=db, tail_s=tail, **({'style': a.style} if a.style else {}))
+            man[text] = dict(file=fn, duration_s=round(d, 3), chars=len(text), model=model, voice=voice, backend='gemini', trim_dbfs=db, tail_s=tail, **({'style': a.style} if a.style else {}))
             raw_s += len(pcm) / 2 / SAMPLE_RATE; out_s += d; done += 1
             if usage:
                 for k in tok: tok[k] += usage[k]
@@ -224,14 +188,9 @@ def main():
                 save_manifest(man, cues_dir); print(f'  {done}/{len(todo)}  {time.time() - t0:.0f} s', flush=True)
     save_manifest(man, cues_dir)
     print(f'rendered {done} clips with {model}/{voice}: {raw_s:.1f} s raw -> {out_s:.1f} s after trim; mean clip {out_s / max(done, 1):.2f} s')
-    if gem:
-        usd = tok['text_tokens'] * GEMINI_USD['text_in_per_m'] / 1e6 + tok['audio_tokens'] * GEMINI_USD['audio_out_per_m'] / 1e6
-        print(f"usage totals: {tok['text_tokens']} text tokens in, {tok['audio_tokens']} audio tokens out, {tok['total_tokens']} total; "
-              f"cost at the 2.5-flash-tts list price (${GEMINI_USD['text_in_per_m']}/M in, ${GEMINI_USD['audio_out_per_m']}/M audio out): ${usd:.3f}")
-    else:
-        rate = USD_PER_MCHAR.get(model, 15.0)
-        print(f'cost estimate: {chars} chars x ${rate}/1M chars = ${chars * rate / 1e6:.4f}'
-              + (f'  (gpt-4o-mini-tts per-minute rate: {raw_s / 60 * 0.015:.4f} USD)' if model.startswith('gpt-4o') else ''))
+    usd = tok['text_tokens'] * GEMINI_USD['text_in_per_m'] / 1e6 + tok['audio_tokens'] * GEMINI_USD['audio_out_per_m'] / 1e6
+    print(f"usage totals: {tok['text_tokens']} text tokens in, {tok['audio_tokens']} audio tokens out, {tok['total_tokens']} total; "
+          f"cost at the 2.5-flash-tts list price (${GEMINI_USD['text_in_per_m']}/M in, ${GEMINI_USD['audio_out_per_m']}/M audio out): ${usd:.3f}")
     tot = sum(v['duration_s'] for v in man.values())
     print(f'manifest {os.path.join(cues_dir, "manifest.json")}: {len(man)} clips, mean clip {tot / max(len(man), 1):.2f} s; bank complete: {bank_complete(cues_dir)}')
 

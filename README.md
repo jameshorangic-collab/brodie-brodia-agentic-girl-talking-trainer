@@ -1,94 +1,214 @@
-# Brodie starter
+# Brodia
 
-A real-time video coach in one Python process. Your phone joins a LiveKit room, the coach watches through the camera, counts reps, corrects form out loud, and talks between sets.
+**Practice approaching a stranger on a live call, then get coaching grounded in what you actually said.**
 
-You write the coaching. Perception is done for you.
+Built at IvyHacks 2026 (Penn, Oct 10–11) for the "Beat Muse" prompt: a realtime video AI agent that lives on
+FaceTime, with no app to download, built on Chert and the Brodie SDK.
 
-## What you need
+## Why
 
-- macOS or Linux, Python 3.12, [uv](https://docs.astral.sh/uv/) (`brew install uv`)
-- A free LiveKit Cloud project ([cloud.livekit.io](https://cloud.livekit.io))
-- A phone, or Safari on a Mac
-- Your team card (Gemini team token)
+Advice about approaching people is usually text you read. You can't rehearse your delivery that way, and rehearsing
+on real strangers puts them on the spot. Instead of a general-purpose call agent, Brodia focuses on one vertical,
+practising social approaches:
 
-## 1. Install (about 30 minutes, mostly waiting)
+- **No download.** Pick a scene on a small web page, then talk over a browser call or a FaceTime call.
+- **Realistic, bounded counterpart.** The AI plays a fictional adult with a setting, a mood and boundaries. Being
+  persistent never wins: a refusal is permanent for the rest of the call.
+- **Grounded feedback.** When you end the round, the coach gives 2 strengths, 2 improvements and 1 thing to try next
+  time, quoting your own words. It mentions visible presentation only when a verified video observation exists.
 
-```
-git clone https://github.com/seraphimlabs-dev/brodie-starter.git brodie-rt-coach && cd brodie-rt-coach
-uv venv --python 3.12 .venv && source .venv/bin/activate
-uv pip install -r requirements.txt
-mkdir -p models && for m in lite full heavy; do curl -sSfL -o models/pose_landmarker_$m.task https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_$m/float16/latest/pose_landmarker_$m.task; done
-```
+## The 3×3 grid
 
-On Linux, run `uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu` first to skip 3 GB of CUDA wheels.
+Pick one scenario and one receptivity. Each of the nine combinations is a separate, validated configuration
+(`facetime/brodia.py`).
 
-## 2. Get the data bundle
+| Scenario | Interested | Neutral | Uninterested |
+| --- | --- | --- | --- |
+| **Barista**: at work; friendly, but her job and time come first | warm, open to a short chat | polite, cautious | reserved, brief; may end it |
+| **Street**: an adult passerby in transit; very brief | warm, open to a short chat | polite, cautious | reserved, brief; may end it |
+| **Park**: relaxing, with time for low-pressure small talk | warm, open to a short chat | polite, cautious | reserved, brief; may end it |
 
-The models, voice clips and sample recordings are not in git. Download them from this repo's release and unpack them at the repo root:
+Receptivity changes how much she reciprocates, not whether you "win". For "uninterested", the best outcome is a
+respectful exit, and the coach gives credit for it.
 
-```
-for p in part1_models_recordings part3_bank_puck; do curl -sSfLO https://github.com/seraphimlabs-dev/brodie-starter/releases/download/data-2026-10-09/rtcoach_starter_${p}_2026-10-09.tgz; done
-tar xzf rtcoach_starter_part1_models_recordings_2026-10-09.tgz && tar xzf rtcoach_starter_part3_bank_puck_2026-10-09.tgz
-```
+## How it works
 
-Check it worked:
-
-```
-ls data/models/clf_pose.pt data/models/trigger_lr.json data/cues_audio_gemini/manifest.json models/pose_landmarker_full.task
-```
-
-## 3. Prove the install (2 minutes, no phone)
-
-```
-python -m facetime.replay_local --video data/tmp/mac_handoff/crops/run3.mp4 --plan "squats:10,pushups:8,jumping jacks:20,lunges:10" --fast --events data/tmp/run3.events.jsonl
-python scripts/test_voice.py
-```
-
-## 4. Configure
-
-Copy `.env.example` to `.env.local` and fill it in. The LiveKit values come from your project's Settings, then Keys. The Gemini token is on your team card.
-
-## 5. First call
-
-Terminal A, the coach:
-
-```
-source .venv/bin/activate && set -a && source .env.local && set +a
-python -m facetime.worker --voice gemini dev
+```text
+ web/index.html (selector, 127.0.0.1:8080)
+        |  POST /api/session {scenario, receptivity}
+        v
+ facetime/brodia_server.py ── explicit LiveKit dispatch: agent "brodia",
+        |                     metadata {"brodia": {scenario, receptivity}}
+        |                     + short-lived room token for the browser
+        v
+ LiveKit room brodia-*  <──── browser (mic/camera)  or  FaceTime via Chert connector
+        |
+        v
+ facetime/worker.py (agent "brodia")
+   ├─ Gemini Live roleplay (voice Leda, American English), persona from facetime/brodia.py
+   ├─ facetime/brodia_live.py: async evaluator scores each caller turn (structured JSON)
+   ├─ facetime/rapport.py: per-call rapport 0–100, behavior bands, request decisions
+   │     └─ blocking tools decide_social_outcome / record_social_boundary
+   └─ on "end practice" / "goodbye": FeedbackSession -> 2 strengths, 2 improvements, 1 next try
 ```
 
-Terminal B, the link (use a new room name for every attempt):
+1. **Selector.** `web/index.html` shows the grid. `facetime/brodia_server.py` creates a fresh room, dispatches the
+   `brodia` agent into it with the selection as job metadata, and returns a 10-minute token. LiveKit credentials stay
+   on the server and never reach the browser.
+2. **Per-call setup.** The worker validates the metadata and switches off the starter's fitness plan, perception
+   coaching, handlers and cue clips for that job. The same prompt goes into both the Gemini session setup and the agent.
+3. **Roleplay.** Gemini Live voices the character. After each final caller transcript, a separate structured Gemini
+   call (`gemini-3.5-flash-lite` by default) rates the turn in context. Python then moves the rapport score by at most
+   ±4 per turn. Duplicates and repeated compliments are ignored. Uncertain turns, timeouts and evaluator errors
+   change nothing. The score shapes the character's tone and is never spoken.
+4. **Social decisions.** Requests for contact, a date, meeting again or continuing go through a **blocking** tool.
+   Python makes the decision (based on rapport, receptivity and scene) before Gemini continues speaking. Refusals are
+   cached, so rephrasing the same ask doesn't get a second roll. Any fictional "contact" is `brodia@example.invalid`.
+5. **Feedback.** When the caller ends the round, the agent switches once into a coach voice, quotes the caller's last
+   lines, and abstains from anything visual unless the video-notes module marked an observation as verified.
 
+Engine details, tuning curves and known limits are in [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md).
+
+## Setup
+
+You need macOS or Linux, Python 3.12, [uv](https://docs.astral.sh/uv/), a LiveKit Cloud project and a Gemini API key
+with Live access.
+
+```bash
+bash scripts/install.sh          # venv (Python 3.12), CPU torch, requirements, starter models and data bundle
+cp .env.example .env.local       # then fill it in; .env.local is gitignored
 ```
-source .venv/bin/activate && set -a && source .env.local && set +a
-python -m facetime.mint_token --room team1-try1 --url
-```
 
-Open the third printed line on your phone, tap to enable audio, prop the phone up and step back. You should hear "Let's do squats" and then the counts.
+Variables in `.env.example` (names only; keep values in `.env.local`):
 
-Always start Terminal A before the phone joins.
-
-## What you change
-
-Only these three files:
-
-| File | What it is |
+| Variable | Purpose |
 | --- | --- |
-| `starter/persona.md` | Who Brodie is and how it talks between sets |
-| `starter/plan.txt` | The workout, e.g. `squats:10,pushups:8,jumping jacks:20,lunges:10` |
-| `starter/handlers.py` | `on_event(event, say_now, ask_voice)`, called for every rep, fault, cue and set change |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | your LiveKit Cloud project |
+| `AGENT_NAME` | dispatch name of the worker (`brodia`) |
+| `GEMINI_API_KEY`, `GEMINI_LIVE_MODEL` | Gemini Live access and model |
+| `GEMINI_VOICE` | starter voice; Brodia ignores it |
+| `BRODIA_GEMINI_VOICE` | Brodia's voice: Leda (default), Aoede, Achernar or Zephyr |
+| `BRODIA_EVALUATOR_MODEL` | model for per-turn rapport evaluation |
+| `BRODIA_RAPPORT_INITIAL` | starting rapport per receptivity (default 65/40/15) |
+| `OPENAI_API_KEY` | optional fallback voice only |
 
-- `say_now(text)` plays a pre-recorded line about 0.2 s later. Only strings in `data/cues_audio_gemini/manifest.json` work.
-- `ask_voice(prompt)` asks the conversational voice, which answers 1 to 2 s later. Only call it when `session.state` is `rest` or `done`, never during a set.
+`scripts/run.sh` loads `.env.local` for every command below.
 
-## Docs
+## Run it
 
-- [docs/STARTER_README.md](docs/STARTER_README.md): full setup, troubleshooting, FaceTime lines, licence
-- [docs/STARTER_EVENTS.md](docs/STARTER_EVENTS.md): every event and its fields
-- [docs/BUILD_ON_BRODIE.md](docs/BUILD_ON_BRODIE.md): what you can build and how
+### Browser practice
 
-The same pages are at [seraphimlabs.dev/hackathon](https://seraphimlabs.dev/hackathon).
+Two terminals:
 
-## Licence
+```bash
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off   # worker
+bash scripts/run.sh selector                                                   # selector UI
+```
 
-The models and the thresholds (`clf_pose.pt`, `trigger_lr.json`, `src/rtcoach/thresholds_e3c.json`, `src/rtcoach/cue_prior.json`) come from a research evaluation licence. Use them for this hackathon only and do not redistribute them.
+Open <http://127.0.0.1:8080>, pick a scenario and receptivity, press **Start practice**, and allow the microphone
+and camera. Say "end practice" or "goodbye" to get feedback. Use a fresh room for each try (the selector does this
+for you). To send video to Gemini as well, add `--vision --vision-fps 1` to the worker command.
+Optional: add `--mirror` to the worker command to make the partner publish a video track showing your own camera with your
+live pose skeleton (a pose preview; frames are not stored). See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#pose-mirror-optional-agent-video).
+Optional: add `--avatar` (env `BRODIA_AVATAR=1`) to publish the partner's character video instead: Jess (barista),
+Maya (park) or Nadia (street), blinking and talking in sync with the agent's audio, then Coach Brodie for the feedback.
+With `--avatar --mirror` your pose mirror becomes a small inset in that one video track. Recommended demo command:
+
+```bash
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --avatar --mirror --vision-notes
+```
+
+See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#character-video---avatar).
+
+### Real FaceTime via Chert's open-source connector
+
+This path uses [cherthq/chert-facetime-opensource](https://github.com/cherthq/chert-facetime-opensource)
+(`@trychert/facetime-opensource@0.1.2`). A Chrome window on your laptop joins your own FaceTime link as a guest and
+bridges it into the `brodia` room. You need Node 22.22+, Google Chrome (Chromium won't work) and an iPhone.
+
+```bash
+LINE=1 bash scripts/run.sh coach                       # Terminal A: worker under its dispatch name
+bash scripts/run.sh facetime barista uninterested      # Terminal B: defaults to park neutral
+```
+
+On the iPhone, create a FaceTime link and paste it at the prompt. Click **Join** in Chrome, admit the guest on the
+iPhone, then press Enter in Terminal B. Run Terminal B again for each call. `--no-launch` only writes the config.
+Full steps are in [docs/FACETIME_OSS.md](docs/FACETIME_OSS.md).
+
+### Offline checks (no API calls)
+
+```bash
+.venv/bin/python scripts/test_brodia_live_engine.py
+.venv/bin/python scripts/test_brodia_gemini.py
+.venv/bin/python scripts/test_brodia_config.py
+.venv/bin/python scripts/test_brodia_feedback.py
+.venv/bin/python scripts/test_brodia_server.py
+node scripts/test_brodia_browser.cjs
+```
+
+The complete list is in the engine guide. One opt-in smoke test does call the real API:
+`scripts/test_brodia_live_smoke.py --synthetic` (synthetic audio is macOS-only).
+
+## Status (as of 2026-10-11)
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| 9 configurations, prompt, selector dispatch contract, feedback prompt, rapport and decision rules | Tested offline | unit tests above; tests inspect the real outbound Gemini config |
+| Gemini Live engine against the real API | Synthetic smoke test passed | Barista + Uninterested and Park + Interested: English, Leda, contact tool called, no reroll ([engine guide](docs/BRODIA_LIVE_ENGINE.md)) |
+| Browser call with a human, all 9 cells | **Pending** | acceptance matrix in the engine guide is not yet filled in |
+| FaceTime via open-source connector | **Partly verified** | dispatch, persona and audio binding checked with a simulated guest on Linux; a real iPhone call is not done yet ([FACETIME_OSS.md](docs/FACETIME_OSS.md)) |
+| Shared Chert line (`chert dev --agent brodia`) | **Pending** | runbook in [NEIL_CALL_TESTS.md](docs/NEIL_CALL_TESTS.md); not yet run |
+| Visual feedback from caller video | Code merged, **not live-verified** | `--vision-notes` labels facing / turned away / out of frame; thresholds come from still images |
+
+Known limits:
+
+- **The FaceTime open-source path is audio only.** The connector forwards only the caller's audio, so feedback there
+  is voice-only and vision notes stay empty. This is not FaceTime Video analysis.
+- The agent publishes no video, so the iPhone sees the connector's waiting screen.
+- FaceTime Video on the shared Chert line is undocumented for the hackathon CLI
+  ([feasibility notes](docs/FACETIME_VIDEO_FEASIBILITY.md)). There is also no documented way to tie a web selection
+  to one specific shared-line caller.
+- Language and boundary checks run after a reply has been spoken. They correct the next turn, not the one already
+  said. Blocking decisions apply only once Gemini actually calls the tool.
+
+## Responsible design
+
+- **Fictional adults only.** Every character is an adult, the prompt forbids playing a minor or claiming to be a real
+  person, and contact details are always fake (`brodia@example.invalid`).
+- **Boundaries hold.** Refusals and explicit boundaries are permanent for the call. Positive rapport never cancels
+  them. Inappropriate requests are declined without a roll. No score guarantees consent.
+- **No emotion or attraction inference.** The rapport score is simulation tuning, not a measure of anyone's feelings.
+  It is never spoken. Visual notes describe only what is observable (for example, "turned away from the camera").
+- **No stored conversations by default.** Transcripts stay in memory for evaluation and feedback and are cleared when
+  the call ends. They are not written to logs, stdout or the data channel unless you pass `--log-caller`. Nothing is
+  recorded. Note that dialogue is sent to the Gemini API for the roleplay and the evaluator.
+- **It's practice.** It's for rehearsal, not for getting live advice while you approach real people.
+
+## Built on Brodie
+
+Brodia is a fork of [seraphimlabs-dev/brodie-starter](https://github.com/seraphimlabs-dev/brodie-starter), a
+real-time video fitness coach. We reuse its LiveKit worker, audio mixer, Gemini Live voice layer and vision forwarding,
+and add explicit `brodia` dispatch, the roleplay persona, the rapport engine and the feedback step. The starter's own
+docs are preserved:
+
+- [docs/STARTER_README_ORIGINAL.md](docs/STARTER_README_ORIGINAL.md): the starter's quick-start README as it was before this rewrite
+- [docs/STARTER_README.md](docs/STARTER_README.md): full starter setup, troubleshooting, Chert lines
+- [docs/STARTER_EVENTS.md](docs/STARTER_EVENTS.md) and [docs/BUILD_ON_BRODIE.md](docs/BUILD_ON_BRODIE.md)
+
+## Credits
+
+- [Brodie starter](https://github.com/seraphimlabs-dev/brodie-starter) by Seraphim Labs
+- [Chert](https://docs.trychert.com) for FaceTime connectivity, including its
+  [open-source connector](https://github.com/cherthq/chert-facetime-opensource)
+- [LiveKit](https://livekit.io) Agents and Cloud
+- [Gemini Live API](https://ai.google.dev/gemini-api/docs/live-api/capabilities)
+
+Team: James, Taha, Neil.
+
+## License
+
+The source code in this repository is available under the [MIT License](LICENSE).
+
+The starter's models and thresholds (`clf_pose.pt`, `trigger_lr.json`, `src/rtcoach/thresholds_e3c.json`,
+`src/rtcoach/cue_prior.json`) are under a research evaluation licence. They may be used for this hackathon only and
+must not be redistributed.

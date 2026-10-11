@@ -16,6 +16,7 @@ openai>=1.50
 modal[api-proxy-support]>=1.0   # api-proxy-support: python-socks so the client works behind an HTTPS proxy (cloud sessions)
 livekit>=1.0
 livekit-api>=1.0
-livekit-agents==1.8.5   # facetime/worker.py: the LiveKit Agents worker the Chert CLI dispatches by name (pins openai<3; only facetime/cues_tts.py imports openai)
+livekit-agents==1.8.5   # facetime/worker.py: the LiveKit Agents worker the Chert CLI dispatches by name
 livekit-plugins-google==1.8.5   # facetime/voice.py: Gemini Live (google.beta.realtime.RealtimeModel, voice Puck) for --voice gemini; same version as livekit-agents
+livekit-plugins-openai==1.8.5   # optional OpenAI Realtime fallback
 sounddevice   # facetime/webcam_local.py speaker output (needs PortAudio; bundled in the macOS wheel)

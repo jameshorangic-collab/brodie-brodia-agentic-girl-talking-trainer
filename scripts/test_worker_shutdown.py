@@ -19,6 +19,7 @@ Run:  .venv/bin/python scripts/test_worker_shutdown.py
 import asyncio, json, os, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import os as _os, tempfile as _tempfile; _os.environ['BRODIA_NEXT_CALL_PATH'] = _os.path.join(_tempfile.mkdtemp(prefix='brodia-test-'), 'next_call.json')  # never touch a real pending P13 selection
 from livekit import rtc
 from facetime import worker
 from facetime.perception import Config, build_pipeline
