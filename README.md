@@ -120,20 +120,20 @@ LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --a
 
 See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#character-video---avatar).
 
-### Real FaceTime via Chert's open-source connector
+### Real FaceTime on the shared Chert line
 
-This path uses [cherthq/chert-facetime-opensource](https://github.com/cherthq/chert-facetime-opensource)
-(`@trychert/facetime-opensource@0.1.2`). A Chrome window on your laptop joins your own FaceTime link as a guest and
-bridges it into the `brodia` room. You need Node 22.22+, Google Chrome (Chromium won't work) and an iPhone.
+This path uses Chert's [FaceTime CLI](https://docs.trychert.com/facetime-cli/quickstart) (`@trychert/facetime`). Run it
+only inside our slot. Install it once with `npm install -g @trychert/facetime && chert login` (Node 22.12+, 24 or 26).
 
 ```bash
-LINE=1 bash scripts/run.sh coach                       # Terminal A: worker under its dispatch name
-bash scripts/run.sh facetime barista uninterested      # Terminal B: defaults to park neutral
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off   # Terminal A: worker first
+bash scripts/run.sh chert                                                      # Terminal B: doctor, then chert dev --agent brodia
 ```
 
-On the iPhone, create a FaceTime link and paste it at the prompt. Click **Join** in Chrome, admit the guest on the
-iPhone, then press Enter in Terminal B. Run Terminal B again for each call. `--no-launch` only writes the config.
-Full steps are in [docs/FACETIME_OSS.md](docs/FACETIME_OSS.md).
+Wait for `"brodia" joined a waiting room`, then call the shared address with FaceTime Audio. To pick the scenario,
+add `--brodia-scenario barista --brodia-receptivity uninterested` to the worker, or use **Use for next FaceTime call**
+in the selector. To release the line: hang up, wait for `Call ended`, press Ctrl+C in Terminal B, and wait for
+`Stopped`. Full steps are in [docs/FACETIME_CHERT.md](docs/FACETIME_CHERT.md).
 
 ### Offline checks (no API calls)
 
@@ -156,15 +156,11 @@ The complete list is in the engine guide. One opt-in smoke test does call the re
 | 9 configurations, prompt, selector dispatch contract, feedback prompt, rapport and decision rules | Tested offline | unit tests above; tests inspect the real outbound Gemini config |
 | Gemini Live engine against the real API | Synthetic smoke test passed | Barista + Uninterested and Park + Interested: English, Leda, contact tool called, no reroll ([engine guide](docs/BRODIA_LIVE_ENGINE.md)) |
 | Browser call with a human, all 9 cells | **Pending** | acceptance matrix in the engine guide is not yet filled in |
-| FaceTime via open-source connector | **Partly verified** | dispatch, persona and audio binding checked with a simulated guest on Linux; a real iPhone call is not done yet ([FACETIME_OSS.md](docs/FACETIME_OSS.md)) |
-| Shared Chert line (`chert dev --agent brodia`) | **Pending** | runbook in [NEIL_CALL_TESTS.md](docs/NEIL_CALL_TESTS.md); not yet run |
+| Shared Chert line (`bash scripts/run.sh chert`) | **Pending** | runbook in [FACETIME_CHERT.md](docs/FACETIME_CHERT.md); a real call is not done yet |
 | Visual feedback from caller video | Code merged, **not live-verified** | `--vision-notes` labels facing / turned away / out of frame; thresholds come from still images |
 
 Known limits:
 
-- **The FaceTime open-source path is audio only.** The connector forwards only the caller's audio, so feedback there
-  is voice-only and vision notes stay empty. This is not FaceTime Video analysis.
-- The agent publishes no video, so the iPhone sees the connector's waiting screen.
 - FaceTime Video on the shared Chert line is undocumented for the hackathon CLI
   ([feasibility notes](docs/FACETIME_VIDEO_FEASIBILITY.md)). There is also no documented way to tie a web selection
   to one specific shared-line caller.
@@ -198,8 +194,7 @@ docs are preserved:
 ## Credits
 
 - [Brodie starter](https://github.com/seraphimlabs-dev/brodie-starter) by Seraphim Labs
-- [Chert](https://docs.trychert.com) for FaceTime connectivity, including its
-  [open-source connector](https://github.com/cherthq/chert-facetime-opensource)
+- [Chert](https://docs.trychert.com) for FaceTime connectivity through its FaceTime CLI
 - [LiveKit](https://livekit.io) Agents and Cloud
 - [Gemini Live API](https://ai.google.dev/gemini-api/docs/live-api/capabilities)
 
