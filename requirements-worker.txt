@@ -1,0 +1,16 @@
+# Cloud worker image (Dockerfile): only what facetime.worker imports for a Brodia call. torch comes from the CPU index in the Dockerfile.
+# The full research stack (transformers, pandas, scikit-learn, nltk, rouge-score, modal) stays in requirements.txt.
+numpy>=2.0
+opencv-python-headless>=4.10
+av
+mediapipe>=0.10.21
+pillow
+tqdm
+sounddevice   # imported by facetime/webcam_local.py at module load; PortAudio comes from apt
+google-genai>=1.0
+openai>=1.50
+livekit>=1.0
+livekit-api>=1.0
+livekit-agents==1.8.5
+livekit-plugins-google==1.8.5
+livekit-plugins-openai==1.8.5
