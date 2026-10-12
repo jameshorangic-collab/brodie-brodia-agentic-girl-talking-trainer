@@ -83,6 +83,7 @@ class FeedbackSession:
         self.vision_notes = []          # verified notes only: dicts {signal, description, observed_at, certainty, nearby}
         self.vision_summary = None      # the latest verified vision_summary event (facetime/vision_notes.Observer.stats())
         self.finished = False
+        self.feedback_from = None       # index into self.coach where Coach Brodie's spoken feedback starts
 
     def observe(self, event):
         """Record a voice event; return the one-time coaching prompt on a real exit."""
@@ -105,8 +106,13 @@ class FeedbackSession:
         if role == 'caller' and isinstance(event.get('t'), (int, float)): self.caller_lines.append((float(event['t']), text))
         if self.finished or role != 'caller' or not self._ends(text):
             return None
-        self.finished = True
+        self.finished = True; self.feedback_from = len(self.coach)
         return self.feedback_prompt()
+
+    def coach_feedback(self):
+        """Coach Brodie's spoken feedback so far (the model's lines after the exit), or None before the exit."""
+        if self.feedback_from is None: return None
+        return ' '.join(self.coach[self.feedback_from:]).strip() or None
 
     @staticmethod
     def _ends(text):

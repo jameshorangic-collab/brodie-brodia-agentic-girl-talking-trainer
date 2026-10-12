@@ -368,6 +368,7 @@ class CoachJob:
         self.worker_error = None; self.cues_played = 0; self.ts_mode = None
         self.voice = None; self.voice_seq = 0; self.event_writer = None; self.consumer_tasks = []
         self.end_reason = None; self.leave_task = None; self.ctx_shutdown_called = False; self.t_end = None; self.call_timer = None
+        self.brodia_controller = None; self.brodia_feedback = None; self.report_sent = None   # the post-call review (facetime/brodia_report.py)
         self.session_state = None; self.probes_ignored = 0        # the probe (--latency-probe) never beeps or opens the floor during an active set
         self.voice_mode = perception_off(a)                       # --perception off: no Perception; the worker emits its own session/status events
         self.t0 = time.monotonic(); self.ev_seq = 0; self.vision = None; self.vision_logged = False; self.session_opened = False; self.open_task = None
@@ -427,6 +428,9 @@ class CoachJob:
             self.consumer_tasks.append(asyncio.create_task(run_for_job(self, fps=a.vision_notes_fps), name='consumer-vision-notes'))
         if self.voice is not None:
             self.consumer_tasks.append(asyncio.create_task(self.voice.run(), name='consumer-voice'))
+        if self.brodia_feedback is not None:                                    # the post-call review for a browser caller
+            from facetime.brodia_report import run_for_job as run_report
+            self.consumer_tasks.append(asyncio.create_task(run_report(self), name='consumer-report'))
         if getattr(a, 'avatar', False):                                         # the agent's video: the character (+ the pose mirror inset with --mirror)
             from facetime.brodia_avatar import run_for_job as run_avatar
             self.avatar_task = asyncio.create_task(run_avatar(self, fps=a.avatar_fps, shape=getattr(a, 'mirror_shape', 'portrait'), mirror=bool(getattr(a, 'mirror', False)),
@@ -479,6 +483,10 @@ class CoachJob:
         if self.leave_task is not None: self.leave_task.cancel()
         if self.open_task is not None and not self.open_task.done(): self.open_task.cancel()
         for t in getattr(self, 'consumer_tasks', []): t.cancel()
+        if self.brodia_feedback is not None:                                    # the last review, before the voice layer clears its state
+            from facetime import brodia_report
+            try: await asyncio.wait_for(brodia_report.send(self), 1.0)
+            except Exception as e: log.debug('final report: %r', e)
         video_tasks = {t for t in (self.mirror_task, self.avatar_task) if t is not None}
         if video_tasks:                                                                  # let the mirror/avatar close its VideoSource (bounded)
             await asyncio.wait(video_tasks, timeout=1.0)
@@ -738,7 +746,7 @@ class CoachJob:
                 if is_brodia and a.voice == 'gemini':
                     from facetime.brodia import RoleplayConfig
                     from facetime.brodia_live import BrodiaController
-                    options['controller'] = BrodiaController(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
+                    options['controller'] = self.brodia_controller = BrodiaController(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
                 model = model_cls(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice, **options)
         if getattr(a, 'vision', False):
             if model is None: print('[vision] --vision needs --voice gemini or openai with a model session: no video is forwarded', flush=True)
@@ -751,7 +759,7 @@ class CoachJob:
         feedback = None
         if a.brodia_scenario:
             from facetime.brodia import FeedbackSession
-            feedback = FeedbackSession()
+            feedback = self.brodia_feedback = FeedbackSession()
         v = VoiceLayer(self, model=model, plan=None if is_brodia else a.plan, handlers=handlers, probe=bool(getattr(a, 'latency_probe', False)), floor_open=floor_open, vision=self.vision, feedback=feedback)
         if model is not None:
             v.attach()

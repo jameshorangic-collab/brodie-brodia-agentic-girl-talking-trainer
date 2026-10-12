@@ -177,7 +177,10 @@ Known limits:
   It is never spoken. Visual notes describe only what is observable (for example, "turned away from the camera").
 - **No stored conversations by default.** Transcripts stay in memory for evaluation and feedback and are cleared when
   the call ends. They are not written to logs, stdout or the data channel unless you pass `--log-caller`. Nothing is
-  recorded. Note that dialogue is sent to the Gemini API for the roleplay and the evaluator.
+  recorded. Note that dialogue is sent to the Gemini API for the roleplay and the evaluator. One exception: on a browser
+  call, the game review (your own scored lines, the rapport path, outcomes, verified camera notes and Coach Brodie's
+  words) goes over the data channel to that caller only, never to a FaceTime bridge. The page shows it after the call
+  and keeps nothing ([facetime/brodia_report.py](facetime/brodia_report.py)).
 - **It's practice.** It's for rehearsal, not for getting live advice while you approach real people.
 
 ## Built on Brodie

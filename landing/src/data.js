@@ -18,6 +18,7 @@ export const GRADES = {
   inacc: { sym: '?!', name: 'Inaccuracy' },
   mist: { sym: '?', name: 'Mistake' },
   blund: { sym: '??', name: 'Blunder' },
+  book: { sym: '·', name: 'Book move' },   // a neutral line in a real review (Review.jsx)
 };
 
 export const SAMPLE_MOVES = [

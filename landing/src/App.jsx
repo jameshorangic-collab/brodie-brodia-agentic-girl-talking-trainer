@@ -2,16 +2,7 @@ import { useEffect, useState } from 'react';
 import { AVATARS, GRADES, MODES, SAMPLE_MOVES, SCENES } from './data.js';
 import Waitlist from './Waitlist.jsx';
 import { CallPanel, useCall } from './Call.jsx';
-
-const Cam = (p) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" {...p}>
-    <rect x="2.5" y="6" width="13" height="12" rx="3" /><path d="M15.5 10.5 21 7.5v9l-5.5-3" />
-  </svg>
-);
-
-function Glyph({ grade, className = '' }) {
-  return <span className={`g ${grade} ${className}`} aria-hidden="true">{GRADES[grade].sym}</span>;
-}
+import { Cam, Glyph } from './ui.jsx';
 
 function useCallTimer(resetKey) {
   const [sec, setSec] = useState(0);
@@ -169,7 +160,7 @@ export default function App() {
         <Waitlist pick={{ scenario: scene, receptivity: mode }} />
       </main>
 
-      <CallPanel call={call} end={end} close={close} refs={refs} />
+      <CallPanel call={call} start={start} end={end} close={close} refs={refs} />
 
       <footer>
         <span>AI practice. All characters 18+. Taking the L gracefully = +aura.</span>

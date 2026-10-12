@@ -9,6 +9,7 @@ from collections import deque
 import json
 import logging
 import os
+import re
 import time
 from typing import Literal
 
@@ -80,6 +81,9 @@ class BrodiaController:
             values = json.loads(os.environ.get('BRODIA_RAPPORT_INITIAL', '{"interested":65,"neutral":40,"uninterested":15}'))
             settings = RapportSettings(initial=values)
         self.state = RapportState(config, settings, rng)
+        self.start_score = self.state.score
+        self.turns = []        # scored caller turns for the post-call review (facetime/brodia_report.py); memory only
+        self.t0 = None         # monotonic time of the first final transcript: review times are relative to it
         self.evaluator = evaluator or GeminiEvaluator()
         self.history = deque(maxlen=24)
         self.queue = asyncio.Queue(maxsize=16)
@@ -106,6 +110,7 @@ class BrodiaController:
             self.seen_ids.add(key); self.id_order.append(key)
             if len(self.id_order) > 256: self.seen_ids.remove(self.id_order.popleft())
         self.turn_seq += 1
+        if self.t0 is None: self.t0 = time.monotonic()
         if role == 'caller' and FeedbackSession._ends(text):
             self.ending = True  # outcomes stop immediately; respectful exit can still score
         payload = {'turn_id': self.turn_seq, 'speaker': role, 'text': text[:2000],
@@ -132,7 +137,8 @@ class BrodiaController:
                 if type(data.get('english')) is not bool:
                     raise ValueError('language assessment missing')
                 if payload['speaker'] == 'caller':
-                    self.state.apply(payload['turn_id'], evaluation, payload['text'])
+                    applied = self.state.apply(payload['turn_id'], evaluation, payload['text'])
+                    self._record_turn(payload, evaluation, applied)
                     if not evaluation.reliable or evaluation.interaction_type == 'uncertain':
                         self.diagnostics['uncertain'] += 1
                         # Final transcripts can arrive after the response. This is
@@ -156,6 +162,23 @@ class BrodiaController:
                 if payload['speaker'] == 'caller' and FeedbackSession._ends(payload['text']):
                     self.state.finished = True
                 self.queue.task_done()
+
+    def _record_turn(self, payload, evaluation, applied):
+        if re.search(r'\b(end|stop) practice\b', payload['text'].lower()): return   # the command to Brodia, not a line to the character
+        scored = evaluation.reliable and evaluation.interaction_type != 'uncertain'
+        self.turns.append({'t': round(max(0., payload['observed_at'] - (self.t0 or payload['observed_at'])), 1),
+                           'quote': payload['text'][:160], 'delta': applied, 'score': self.state.score,
+                           'type': evaluation.interaction_type if scored else 'uncertain', 'reason': evaluation.reason})
+        del self.turns[:-40]
+
+    def report(self):
+        """The scored part of the post-call review: settings, score path, turns, outcomes. No model or API detail."""
+        s = self.state
+        return {'scenario': s.config.scenario, 'receptivity': s.config.receptivity,
+                'score': {'start': self.start_score, 'now': s.score, 'band': s.band},
+                'turns': [dict(t) for t in self.turns],
+                'outcomes': [{'request': o.request, 'accepted': o.accepted} for o in s.outcomes.values()],
+                'boundaries': sorted(s.boundaries)}
 
     async def _refresh(self, note=''):
         if not self.ending and self.model is not None and self.model.agent is not None:
@@ -215,5 +238,6 @@ class BrodiaController:
         while not self.queue.empty():
             self.queue.get_nowait(); self.queue.task_done()
         self.state.evaluations.clear()
+        self.turns.clear()
         if hasattr(self.evaluator, 'aclose'):
             await self.evaluator.aclose()
