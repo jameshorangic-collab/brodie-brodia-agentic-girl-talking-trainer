@@ -247,7 +247,6 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10
 .callhead span { font: 500 .75rem/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .callstage { position: relative; aspect-ratio: 3 / 4; max-height: 60vh; width: 100%; border-radius: 20px; overflow: hidden; background: #0d0a16; }
 .callstage .agent { width: 100%; height: 100%; object-fit: contain; }
-.callstage .me { position: absolute; right: 10px; bottom: 10px; width: 28%; border-radius: 12px; object-fit: cover; aspect-ratio: 3 / 4; background: #241d38; }
 .callstage[data-state="connecting"]::after { content: ""; position: absolute; inset: 0; margin: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--go); animation: ping 1.2s ease-out infinite; }
 @keyframes ping { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--go) 60%, transparent); } to { box-shadow: 0 0 0 28px transparent; } }
 .callmsg { margin: 0; font-size: .9375rem; }

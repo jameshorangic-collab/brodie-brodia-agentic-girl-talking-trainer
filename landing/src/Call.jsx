@@ -6,7 +6,7 @@ import { MODES, SCENES } from './data.js';
 export function useCall() {
   const [call, setCall] = useState(null); // null | {pick, state: connecting | live | ended | error, msg, waitlist}
   const room = useRef(null);
-  const agentVideo = useRef(null), selfVideo = useRef(null), audio = useRef(null);
+  const agentVideo = useRef(null), audio = useRef(null);
   const update = (patch) => setCall((c) => (c ? { ...c, ...patch } : c));
 
   function end(msg = 'Call ended. GG.') {
@@ -40,7 +40,6 @@ export function useCall() {
       await r.localParticipant.setMicrophoneEnabled(true);
       let camera = true;
       try { await r.localParticipant.setCameraEnabled(true); } catch { camera = false; }
-      r.localParticipant.getTrackPublication(Track.Source.Camera)?.track?.attach(selfVideo.current);
       update({ state: 'live', msg: camera ? 'Say hi. Say “end practice” for your game review.' : 'No camera, so it’s voice-only: no body-language notes this time.' });
     } catch (e) {
       if (room.current === r) { room.current = null; r.disconnect(); }
@@ -50,7 +49,7 @@ export function useCall() {
   }
 
   useEffect(() => () => room.current?.disconnect(), []);
-  return { call, start, end, close: () => { end(); setCall(null); }, refs: { agentVideo, selfVideo, audio } };
+  return { call, start, end, close: () => { end(); setCall(null); }, refs: { agentVideo, audio } };
 }
 
 export function CallPanel({ call, end, close, refs }) {
@@ -63,7 +62,7 @@ export function CallPanel({ call, end, close, refs }) {
         <div className="callhead"><b>{s.name}</b><span>{s.label} · {m.label}</span></div>
         <div className="callstage" data-state={call.state}>
           <video ref={refs.agentVideo} className="agent" autoPlay playsInline />
-          <video ref={refs.selfVideo} className="me" autoPlay playsInline muted />
+          {/* no self-view here: the worker's --mirror already draws the caller's camera as an inset in the partner video */}
           <div ref={refs.audio} hidden />
         </div>
         <p className="callmsg" role="status">{call.msg}</p>
