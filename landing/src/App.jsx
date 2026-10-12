@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AVATARS, GRADES, MODES, SAMPLE_MOVES, SCENES } from './data.js';
+import { GRADES, MODES, SAMPLE_MOVES, SCENES } from './data.js';
 import Waitlist from './Waitlist.jsx';
 import { CallPanel, useCall } from './Call.jsx';
-import { Cam, Glyph } from './ui.jsx';
+import { Avatar, Cam, Glyph } from './ui.jsx';
 
 function useCallTimer(resetKey) {
   const [sec, setSec] = useState(0);
@@ -22,20 +22,6 @@ function Chips({ label, options, value, onChange }) {
       {Object.entries(options).map(([key, o]) => (
         <button key={key} type="button" className="chip" aria-pressed={value === key} onClick={() => onChange(key)}>{o.label}</button>
       ))}
-    </div>
-  );
-}
-
-/* The faceless figurine with eyes, brows and mouth drawn on top, like the app's avatar. */
-function Avatar({ id }) {
-  const a = AVATARS[id];
-  const at = ([x, y]) => ({ left: `${(x / 612) * 100}%`, top: `${(y / 408) * 100}%` });
-  return (
-    <div className="avatar" key={id}>
-      <img src={`/avatars/${id}.png`} alt="" width="612" height="408" />
-      {a.brows.map((p, i) => <i key={`b${i}`} className="brow" style={at(p)} />)}
-      {a.eyes.map((p, i) => <i key={`e${i}`} className="eye" style={at(p)} />)}
-      <i className="mouth" style={at(a.mouth)} />
     </div>
   );
 }
@@ -123,7 +109,7 @@ export default function App() {
   const [scene, setScene] = useState('park');
   const [mode, setMode] = useState('neutral');
   const m = MODES[mode];
-  const { call, start, end, close, refs } = useCall();
+  const { call, start, end, toggle, close, refs } = useCall();
 
   return (
     <div className="wrap">
@@ -160,7 +146,7 @@ export default function App() {
         <Waitlist pick={{ scenario: scene, receptivity: mode }} />
       </main>
 
-      <CallPanel call={call} start={start} end={end} close={close} refs={refs} />
+      <CallPanel call={call} start={start} end={end} toggle={toggle} close={close} refs={refs} />
 
       <footer>
         <span>AI practice. All characters 18+. Taking the L gracefully = +aura.</span>
