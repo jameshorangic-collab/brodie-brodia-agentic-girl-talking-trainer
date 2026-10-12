@@ -256,3 +256,21 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10
 .btn:disabled { opacity: .55; cursor: progress; transform: none; box-shadow: none; }
 .fine { margin: 0; font-size: .75rem; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .callstage[data-state="connecting"]::after { animation: none; } }
+
+/* the real game review inside the call dialog (Review.jsx) */
+.call:has(.report.live) { width: min(560px, 100%); }
+.report.live { border: 0; box-shadow: none; padding: 0; background: none; }
+.aura .delta.down { color: var(--blund); }
+.g.book { --c: var(--chip); color: var(--muted); }
+.why { color: var(--muted); }
+.outcomes { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.outcomes li { font-size: .875rem; padding: 7px 12px; border-radius: 999px; background: var(--chip); }
+.outcomes li.yes b { color: var(--go); } .outcomes li.no b { color: var(--muted); }
+.empty { color: var(--muted); padding-block: 14px; margin: 0; }
+.seen { list-style: none; margin: 0; padding: 14px 0 0; display: grid; gap: 8px; font-size: .875rem; color: var(--muted); }
+.seen li { display: flex; gap: 8px; align-items: flex-start; }
+.seen svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+.coachsays { display: flex; gap: 12px; align-items: flex-start; padding-top: 16px; }
+.coachsays img { width: 64px; height: 64px; flex: none; }
+.coachsays p { margin: 0; font-size: .9375rem; }
+.coachsays b { display: block; font: 500 .75rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
