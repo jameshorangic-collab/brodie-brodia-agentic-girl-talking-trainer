@@ -1,0 +1,14 @@
+.git/
+.venv/
+.local/
+data/
+models/
+landing/
+docs/
+scripts/
+web/
+**/__pycache__/
+*.py[cod]
+.env
+.env.*
+node_modules/
