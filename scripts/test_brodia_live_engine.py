@@ -158,6 +158,31 @@ class LiveContracts(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(job.thread)
                 await job.aclose()  # idempotent
 
+    async def test_max_call_s_ends_the_call_from_the_first_bind(self):
+        from scripts.test_worker_shutdown import FakeCtx, FakeRoom, P
+        from facetime import worker
+        from facetime.perception import Config
+        from facetime.audio_out import CueBank
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix='brodia-maxcall-') as directory:
+            args=worker.resolve_mode(worker.build_parser().parse_args(['--voice','off','--max-call-s','0.3']))
+            args=worker.apply_brodia_dispatch(args,{'brodia':{'scenario':'park','receptivity':'neutral'}})
+            args.cue_log=str(Path(directory)/'cues.jsonl');args.event_log=str(Path(directory)/'events.jsonl')
+            ctx=FakeCtx(FakeRoom())
+            job=worker.CoachJob(ctx,args,Config.from_args(args),None,CueBank.disabled(),{})
+            task=asyncio.create_task(job.run())
+            await asyncio.sleep(.4)
+            self.assertFalse(task.done(),'no caller yet: the cap must not run (a Chert warm room waits unbound)')
+            job.bind(P('brodia-browser'),'audio (test)')
+            await asyncio.sleep(.15); job.bind(P('brodia-browser'),'audio (rebind)')   # a rebind never extends the call
+            await asyncio.wait_for(task,1)
+            self.assertEqual(job.end_reason,'max call length reached')
+            self.assertTrue(ctx.shutdowns)
+        with patch.dict(os.environ,{'BRODIA_MAX_CALL_S':'600'}):
+            self.assertEqual(worker.build_parser().parse_args([]).max_call_s,600.0)
+        with patch.dict(os.environ,{'BRODIA_MAX_CALL_S':''}):
+            self.assertIsNone(worker.build_parser().parse_args([]).max_call_s)
+
     async def test_actual_google_connect_config_all_nine(self):
         from livekit.agents import llm
         from livekit.plugins.google.realtime.realtime_api import RealtimeSession

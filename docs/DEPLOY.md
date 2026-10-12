@@ -37,5 +37,5 @@ lk agent update-secrets --secrets "GEMINI_API_KEY=..."
 
 - **One dispatch name, one place.** A laptop worker started with `LINE=1` also registers as `brodia`, and LiveKit spreads jobs across both. Stop the local worker, or run it under another `AGENT_NAME`, while the cloud one is live.
 - **Build plan limits:** at most 5 concurrent agent sessions. The agent may scale to zero when idle, which adds 10 to 20 s before it joins the next call. `chert dev` keeps a waiting room ready, which covers most of that on the FaceTime line.
-- **Costs:** every call uses Gemini Live and the evaluator model on our key. Do not expose a public "start a call" endpoint without a rate limit.
+- **Costs:** every call uses Gemini Live and the evaluator model on our key. The image sets `BRODIA_MAX_CALL_S=600`, so each call ends 10 minutes after the caller joins, whether or not the camera is on. The public site's `/api/session` adds per-IP and site-wide limits ([landing/README.md](../landing/README.md#practice-calls)).
 - **Not yet verified:** a real call against the deployed agent, and CPU headroom for `--mirror` (pose at the mirror frame rate) on LiveKit Cloud's instance size. If calls stutter, drop `--mirror` from `CMD` first.

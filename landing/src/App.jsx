@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AVATARS, GRADES, MODES, SAMPLE_MOVES, SCENES } from './data.js';
 import Waitlist from './Waitlist.jsx';
+import { CallPanel, useCall } from './Call.jsx';
 
 const Cam = (p) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" {...p}>
@@ -131,6 +132,7 @@ export default function App() {
   const [scene, setScene] = useState('park');
   const [mode, setMode] = useState('neutral');
   const m = MODES[mode];
+  const { call, start, end, close, refs } = useCall();
 
   return (
     <div className="wrap">
@@ -153,10 +155,10 @@ export default function App() {
             </div>
 
             <div className="cta">
-              <a className="btn" href="#waitlist">Lock in
+              <button className="btn" type="button" onClick={() => start({ scenario: scene, receptivity: mode })} disabled={call?.state === 'connecting' || call?.state === 'live'}>Lock in
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-              </a>
-              <span className="note">No app. Just FaceTime.</span>
+              </button>
+              <span className="note">Free call, right in your browser. No app.</span>
             </div>
           </div>
 
@@ -166,6 +168,8 @@ export default function App() {
         <Review />
         <Waitlist pick={{ scenario: scene, receptivity: mode }} />
       </main>
+
+      <CallPanel call={call} end={end} close={close} refs={refs} />
 
       <footer>
         <span>AI practice. All characters 18+. Taking the L gracefully = +aura.</span>

@@ -114,6 +114,7 @@ def build_parser():
     ap.add_argument('--no-probe-beep', dest='probe_beep', action='store_false', help='with --latency-probe: open the voice floor on the probe but do not beep')
     ap.add_argument('--video-quality', default='low', choices=['low', 'medium', 'high', 'none'], help='simulcast layer to request when the publisher simulcasts')
     ap.add_argument('--max-s', type=float, default=None, help='leave the room this long after the first video frame (default: stay until the room closes)')
+    ap.add_argument('--max-call-s', type=float, default=float(os.environ.get('BRODIA_MAX_CALL_S') or 0) or None, help='end the job this long after the caller is first bound, video or not (env BRODIA_MAX_CALL_S; default: no limit). The public cloud worker sets 600 to bound per-call model cost')
     ap.add_argument('--idle-processes', type=int, default=int(os.environ.get('RTCOACH_IDLE_PROCS', '1')), help='preloaded job processes kept ready (models loaded in prewarm)')
     ap.add_argument('--voice', default=os.environ.get('VOICE', 'gemini'), choices=['off', 'gemini', 'openai'], help='conversational layer: Gemini Live by default, or OpenAI Realtime fallback, through the cue track (env VOICE)')
     ap.add_argument('--voice-model', default=None, help='model id (GEMINI_LIVE_MODEL for Gemini; OPENAI_REALTIME_MODEL for OpenAI)')
@@ -366,7 +367,7 @@ class CoachJob:
         self.video_task = None; self.bound = None; self.call_id = None; self.frame_size = None; self.first_frame_t = None
         self.worker_error = None; self.cues_played = 0; self.ts_mode = None
         self.voice = None; self.voice_seq = 0; self.event_writer = None; self.consumer_tasks = []
-        self.end_reason = None; self.leave_task = None; self.ctx_shutdown_called = False; self.t_end = None
+        self.end_reason = None; self.leave_task = None; self.ctx_shutdown_called = False; self.t_end = None; self.call_timer = None
         self.session_state = None; self.probes_ignored = 0        # the probe (--latency-probe) never beeps or opens the floor during an active set
         self.voice_mode = perception_off(a)                       # --perception off: no Perception; the worker emits its own session/status events
         self.t0 = time.monotonic(); self.ev_seq = 0; self.vision = None; self.vision_logged = False; self.session_opened = False; self.open_task = None
@@ -439,6 +440,9 @@ class CoachJob:
         reason = self.end_reason or (f'perception error: {self.worker_error!r}' if self.worker_error is not None else 'done')
         await self.aclose(); self.shutdown_ctx(reason)
 
+    def _max_call_reached(self):
+        print(f'[worker] --max-call-s {self.a.max_call_s:g} reached: ending the call', flush=True); self.end('max call length reached')
+
     def end(self, reason):
         """End the job (event loop): run() wakes, cleans up and returns, then tells the framework (shutdown_ctx)."""
         if self.end_reason is None: self.end_reason = reason
@@ -470,6 +474,7 @@ class CoachJob:
         """Idempotent cleanup (run() at its end, and the framework's shutdown callback): every wait is bounded, nothing blocks the loop."""
         if self.closed: return
         self.closed = True; self.stop.set(); self.done.set(); t0 = time.monotonic()
+        if self.call_timer is not None: self.call_timer.cancel()
         if self.t_end is None: self.t_end = t0
         if self.leave_task is not None: self.leave_task.cancel()
         if self.open_task is not None and not self.open_task.done(): self.open_task.cancel()
@@ -541,6 +546,8 @@ class CoachJob:
         extra = getattr(self.event_writer, 'extra', None)                   # the JSONL lines carry the call id from the bind on (null before it)
         if isinstance(extra, dict): extra['call_id'] = self.call_id
         print(f'[worker] bound to {participant.identity!r} (call id {self.call_id or "n/a"}): {what}', flush=True)
+        if self.a.max_call_s and self.call_timer is None:                  # from the FIRST bind, so a rebind never extends the call
+            self.call_timer = self.loop.call_later(self.a.max_call_s, self._max_call_reached)
         if self.voice_mode:
             if not self.session_opened and self.open_task is None:
                 self.open_task = asyncio.create_task(self._open_session(participant.identity), name='voice-start')
