@@ -28,5 +28,7 @@ RUN adduser --disabled-password --gecos "" --home /app --shell /sbin/nologin --u
 WORKDIR /app
 COPY --from=build --chown=appuser:appuser /app /app
 USER appuser
+# Hard per-call cap from the caller's first bind (facetime/worker.py --max-call-s): bounds Gemini cost on the public site
+ENV BRODIA_MAX_CALL_S=600
 # The recommended demo flags from the README. Dispatch name "brodia": the selector and `chert dev --agent brodia` target it.
 CMD ["python", "-m", "facetime.worker", "--voice", "gemini", "--agent-name", "brodia", "--perception", "off", "--avatar", "--mirror", "--vision-notes", "start"]
